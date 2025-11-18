@@ -1,0 +1,283 @@
+﻿@page "/tasks"
+@using TaskManagement.Blazor.Services.Auth
+@using TaskManagement.UI.Models.TaskItem
+@using TaskManagement.UI.Services
+@using TaskManagement.UI.Services.Auth
+@using TaskManagement.UI.Services.TaskItem
+@inject ITaskService TaskService
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@using Microsoft.AspNetCore.Components.Authorization
+
+<link href="/css/task/tasklist.css" rel="stylesheet" />
+<PageTitle>My Tasks - Task Management</PageTitle>
+
+<div class="tasks-container">
+    <div class="tasks-header">
+        <div class="header-content">
+            <h1>My Tasks</h1>
+            <p>Manage your tasks efficiently</p>
+        </div>
+        <button class="btn btn-primary" @onclick="ShowCreateModal">
+            <i class="bi bi-plus-lg me-2"></i>
+            New Task
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading-state">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p>Loading your tasks...</p>
+        </div>
+    }
+
+    else if (!tasks.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-icon">📝</div>
+            <h3>No tasks yet</h3>
+            <p>Get started by creating your first task</p>
+            <button class="btn btn-primary" @onclick="ShowCreateModal">
+                Create Your First Task
+            </button>
+        </div>
+    }
+
+    else
+    {
+        <div class="tasks-list">
+            @foreach (var task in tasks)
+            {
+                <div class="task-card">
+                    <div class="task-header">
+                        <h4 class="task-title">@task.Title</h4>
+                        <div class="task-actions">
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => EditTask(task)">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTask(task)">
+                                <i class="bi bi-trash me-1"></i>Delete
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(task.Description))
+                    {
+                        <p class="task-description">@task.Description</p>
+                    }
+
+                    <div class="task-meta">
+                        <span class="task-status status-@task.Status">
+                            @task.Status
+                        </span>
+                        <span class="task-priority priority-@task.Priority">
+                            @task.Priority
+                        </span>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (showCreateModal)
+{
+    <div class="modal-backdrop show" @onclick="CloseCreateModal"></div>
+    <div class="modal show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create New Task</h5>
+                    <button type="button" class="btn-close" @onclick="CloseCreateModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="newTask" OnValidSubmit="CreateTask">
+                        <DataAnnotationsValidator />
+
+                        <div class="form-group">
+                            <label for="title" class="form-label">Title *</label>
+                            <InputText @bind-Value="newTask.Title" id="title" class="form-control" placeholder="Enter task title" />
+                            <ValidationMessage For="@(() => newTask.Title)" />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="description" class="form-label">Description</label>
+                            <InputTextArea @bind-Value="newTask.Description" id="description" class="form-control"
+                                           placeholder="Enter task description" rows="3" />
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="priority" class="form-label">Priority</label>
+                                <select @bind="newTask.Status" class="form-control" id="priority">
+                                    <option value="Todo">Todo</option>
+                                    <option value="InProgress" selected>InProgress</option>
+                                    <option value="Done">Done</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="priority" class="form-label">Priority</label>
+                                <select @bind="newTask.Priority" class="form-control" id="priority">
+                                    <option value="Low">Low</option>
+                                    <option value="Medium" selected>Medium</option>
+                                    <option value="High">High</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseCreateModal">
+                                Cancel
+                            </button>
+                            <button type="submit" class="btn btn-primary" disabled="@isCreating">
+                                @if (isCreating)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    <span>Creating...</span>
+                                }
+                                else
+                                {
+                                    <span>Create Task</span>
+                                }
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showNotification)
+{
+    <div class="notification @notificationType">
+        <div class="notification-content">
+            <span>@notificationMessage</span>
+            <button class="notification-close" @onclick="HideNotification">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private List<TaskDto> tasks = new();
+    private bool showCreateModal = false;
+    private CreateTaskRequest newTask = new();
+    private bool isLoading = true;
+    private bool isCreating = false;
+    private bool showNotification = false;
+    private string notificationMessage = string.Empty;
+    private string notificationType = "success";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTasks();
+    }
+
+    private async Task LoadTasks()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        var result = await TaskService.GetAllAsync();
+        if (result != null)
+        {
+            //tasks = result.Data ?? new List<TaskDto>();
+            tasks = result.Data.ToList();
+        }
+        else
+        {
+            ShowNotification($"Error: {result.Message}", "error");
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private void ShowCreateModal()
+    {
+        newTask = new CreateTaskRequest();
+        showCreateModal = true;
+    }
+
+    private void CloseCreateModal()
+    {
+        showCreateModal = false;
+    }
+
+    private async Task CreateTask()
+    {
+        isCreating = true;
+        StateHasChanged();
+
+        var result = await TaskService.CreateAsync(newTask);
+        if (result != null)
+        {
+            showCreateModal = false;
+            await LoadTasks();
+            ShowNotification("Task created successfully!", "success");
+        }
+        else
+        {
+            ShowNotification($"Error: {result.Message}", "error");
+        }
+
+        isCreating = false;
+        StateHasChanged();
+    }
+
+    private void EditTask(TaskDto task)
+    {
+        Navigation.NavigateTo($"/tasks/edit/{task.Id}");
+    }
+
+    private async Task DeleteTask(TaskDto task)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{task.Title}'?");
+        if (confirmed)
+        {
+            var result = await TaskService.DeleteAsync(task.Id);
+            if (result.IsSuccess)
+            {
+                await LoadTasks();
+                ShowNotification("Task deleted successfully!", "success");
+            }
+            else
+            {
+                ShowNotification($"Error: {result.Message}", "error");
+            }
+        }
+    }
+
+    private void ShowNotification(string message, string type)
+    {
+        notificationMessage = message;
+        notificationType = type;
+        showNotification = true;
+        StateHasChanged();
+
+        // Auto-hide after 3 seconds
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                showNotification = false;
+                StateHasChanged();
+            });
+        });
+    }
+
+    private void HideNotification()
+    {
+        showNotification = false;
+        StateHasChanged();
+    }
+}

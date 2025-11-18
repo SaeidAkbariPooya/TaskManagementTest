@@ -1,0 +1,16 @@
+﻿.top-row.auth {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    justify-content: flex-end;
+    padding: 1rem 0;
+}
+
+.user-info {
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.btn {
+    text-decoration: none;
+}

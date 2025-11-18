@@ -1,0 +1,212 @@
+﻿@page "/tasks/edit/{Id:guid}"
+@using TaskManagement.UI.Models.TaskItem
+@using TaskManagement.UI.Services.TaskItem
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject ITaskService TaskService
+
+<link href="/css/task/edittask.css" rel="stylesheet" />
+<PageTitle>Edit Task - Task Management</PageTitle>
+
+<div class="edit-task-container">
+    <div class="page-header">
+        <h3>Edit Task</h3>
+        <button class="btn btn-secondary" @onclick="NavigateBack">
+            ← Back to Tasks
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span>Loading task...</span>
+        </div>
+    }
+    else if (task != null)
+    {
+        <div class="edit-form-container">
+            <EditForm Model="task" OnValidSubmit="HandleUpdate">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+
+                <div class="form-group">
+                    <label for="title">Title *</label>
+                    <InputText @bind-Value="task.Title" id="title" class="form-control" />
+                    <ValidationMessage For="@(() => task.Title)" />
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <InputTextArea @bind-Value="task.Description" id="description" class="form-control" rows="4" />
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="status">Status</label>
+                        <InputSelect @bind-Value="task.Status" class="form-control" id="status">
+                            <option value="Todo">Todo</option>
+                            <option value="InProgress">In Progress</option>
+                            <option value="Done">Done</option>
+                        </InputSelect>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="priority">Priority</label>
+                        <InputSelect @bind-Value="task.Priority" class="form-control" id="priority">
+                            <option value="Low">Low</option>
+                            <option value="Medium">Medium</option>
+                            <option value="High">High</option>
+                        </InputSelect>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" disabled="@isUpdating">
+                        @if (isUpdating)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            <span>Updating...</span>
+                        }
+                        else
+                        {
+                            <span>Update Task</span>
+                        }
+                    </button>
+                    <button type="button" class="btn btn-secondary" @onclick="NavigateBack">
+                        Cancel
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+    else
+    {
+        <div class="error-message">
+            <h4>Task not found</h4>
+            <p>The task you're trying to edit doesn't exist or you don't have permission to access it.</p>
+            <button class="btn btn-primary" @onclick="NavigateBack">
+                Back to Tasks
+            </button>
+        </div>
+    }
+</div>
+
+@if (showNotification)
+{
+    <div class="notification @notificationType">
+        <span>@notificationMessage</span>
+        <button class="notification-close" @onclick="HideNotification">×</button>
+    </div>
+}
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private UpdateTaskRequest task = new();
+    private bool isLoading = true;
+    private bool isUpdating = false;
+    private bool showNotification = false;
+    private string notificationMessage = string.Empty;
+    private string notificationType = "success";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTask(Id);
+    }
+
+    private async Task LoadTask(Guid taskId)
+    {
+        var result = await TaskService.GetByIdAsync(taskId);
+        if (result != null)
+        {
+            task = new UpdateTaskRequest
+            {
+                Id = result.Data.Id,
+                Title = result.Data.Title,
+                Description = result.Data.Description,
+                Status = result.Data.Status,
+                Priority = result.Data.Priority,
+                UserId = result.Data.UserId,
+                TaskId = result.Data.Id
+            };
+        }
+        else
+        {
+            ShowNotification("Failed to load task", "error");
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task HandleUpdate()
+    {
+        isUpdating = true;
+        StateHasChanged();
+
+        var result = await TaskService.UpdateAsync(task);
+        if (result.IsSuccess)
+        {
+            ShowNotification("Task updated successfully!", "success");
+            await Task.Delay(1000);
+            Navigation.NavigateTo("/tasks");
+        }
+        else
+        {
+            ShowNotification($"Failed to update task: {result.Message}", "error");
+        }
+
+        isUpdating = false;
+        StateHasChanged();
+    }
+
+    private async Task DeleteTask()
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Are you sure you want to delete this task?");
+        if (confirmed)
+        {
+            var result = await TaskService.DeleteAsync(task.Id);
+            if (result.IsSuccess)
+            {
+                ShowNotification("Task deleted successfully!", "success");
+                await Task.Delay(1000);
+                Navigation.NavigateTo("/tasks");
+            }
+            else
+            {
+                ShowNotification($"Failed to delete task: {result.Message}", "error");
+            }
+        }
+    }
+
+    private void NavigateBack()
+    {
+        Navigation.NavigateTo("/tasks");
+    }
+
+    private void ShowNotification(string message, string type)
+    {
+        notificationMessage = message;
+        notificationType = type;
+        showNotification = true;
+        StateHasChanged();
+
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                showNotification = false;
+                StateHasChanged();
+            });
+        });
+    }
+
+    private void HideNotification()
+    {
+        showNotification = false;
+        StateHasChanged();
+    }
+}
